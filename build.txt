@@ -1,0 +1,3 @@
+displayName = Artificial Intelligence Ore
+author = IKEA
+version = 0.1
