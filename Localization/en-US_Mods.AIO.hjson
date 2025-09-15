@@ -10,7 +10,34 @@ Items: {
 			It's snowing on Mt.Fuji
 			'''
 	}
+
+	AIBar: {
+		DisplayName: A I Bar
+		Tooltip: ""
+	}
+
+	AIOre: {
+		DisplayName: A I Ore
+		Tooltip: ""
+	}
+
+	MoltenBar: {
+		DisplayName: Molten Bar
+		Tooltip: ""
+	}
+
+	MoltenOre: {
+		DisplayName: Molten Ore
+		Tooltip: ""
+	}
 }
 
-Tiles.AIOre.MapEntry: A I Ore
-WorldGen.AIOrePassMessage: Mods.AIO.WorldGen.AIOrePassMessage
+Tiles: {
+	AIOre.MapEntry: A I Ore
+	MoltenOre.MapEntry: Molten Ore
+}
+
+WorldGen: {
+	AIOrePassMessage: Mods.AIO.WorldGen.AIOrePassMessage
+	MoltenOrePassMessage: Mods.AIO.WorldGen.MoltenOrePassMessage
+}
