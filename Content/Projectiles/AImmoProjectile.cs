@@ -2,6 +2,7 @@
 using Microsoft.Xna.Framework.Graphics;
 using System;
 using Terraria;
+using Terraria.GameContent;
 using Terraria.ID;
 using Terraria.ModLoader;
 
@@ -46,7 +47,6 @@ namespace AIO.Content.Projectiles {
             AIType = ProjectileID.Bullet; // Copy bullet base movement
         }
 
-        /**
         public override bool PreDraw(ref Color lightColor) {
             // Get texture
             Texture2D texture = Terraria.GameContent.TextureAssets.Projectile[Projectile.type].Value;
@@ -69,7 +69,6 @@ namespace AIO.Content.Projectiles {
 
             return false; // we've handled all drawing
         }
-        */
 
         public override void AI() {
             float maxDetectRadius = 400f;
