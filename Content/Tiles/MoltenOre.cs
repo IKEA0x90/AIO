@@ -14,6 +14,8 @@ using Terraria.WorldBuilding;
 namespace AIO.Content.Tiles {
     public class MoltenOre : ModTile {
         public override void SetStaticDefaults() {
+            Main.tileLighted[Type] = true;
+
             TileID.Sets.Ore[Type] = true;
             TileID.Sets.FriendlyFairyCanLureTo[Type] = true;
             Main.tileSpelunker[Type] = true; // The tile will be affected by spelunker highlighting

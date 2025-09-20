@@ -26,6 +26,7 @@ namespace AIO.Content.Items
 			Item.autoReuse = true;
 		}
 
+		/**
 		public override void AddRecipes()
 		{
 			Recipe recipe = CreateRecipe();
@@ -33,5 +34,6 @@ namespace AIO.Content.Items
 			recipe.AddTile(TileID.WorkBenches);
 			recipe.Register();
 		}
+		*/
 	}
 }

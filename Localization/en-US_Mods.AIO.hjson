@@ -3,41 +3,49 @@
 Items: {
 	BladeOfTheRuinedKing: {
 		DisplayName: Blade Of The Ruined King
-		Tooltip:
-			'''
-			Template of an item
-			Replacing this tooltip is duty 
-			It's snowing on Mt.Fuji
-			'''
+		Tooltip: Blade of the Ruined King in Terraria
 	}
 
 	AIBar: {
-		DisplayName: A I Bar
-		Tooltip: ""
+		DisplayName: Artificial Intelligence Bar
+		Tooltip: Smart in your pocket!
 	}
 
 	AIOre: {
-		DisplayName: A I Ore
-		Tooltip: ""
+		DisplayName: Artificial Intelligence Ore
+		Tooltip: Very cold to the touch
 	}
 
 	MoltenBar: {
 		DisplayName: Molten Bar
-		Tooltip: ""
+		Tooltip: Solid Molten solid lava
 	}
 
 	MoltenOre: {
 		DisplayName: Molten Ore
+		Tooltip: Solid lava
+	}
+
+	HellPylonItem: {
+		DisplayName: Underworld Pylon
+		Tooltip: You know what pylons do
+	}
+
+	AImmo: {
+		DisplayName: A Immo
 		Tooltip: ""
 	}
 }
 
 Tiles: {
-	AIOre.MapEntry: A I Ore
+	AIOre.MapEntry: AI Ore
 	MoltenOre.MapEntry: Molten Ore
+	HellPylonTile.MapEntry: Underworld Pylon
 }
 
 WorldGen: {
-	AIOrePassMessage: Mods.AIO.WorldGen.AIOrePassMessage
-	MoltenOrePassMessage: Mods.AIO.WorldGen.MoltenOrePassMessage
+	AIOrePassMessage: Populating world with AI
+	MoltenOrePassMessage: Solidifying lava
 }
+
+Projectiles.AImmoProjectile.DisplayName: A Immo Projectile
