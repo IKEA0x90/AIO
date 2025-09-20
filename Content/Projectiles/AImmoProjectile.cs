@@ -21,8 +21,9 @@ namespace AIO.Content.Projectiles {
             // Keep consistent with vanilla: Cultists resist homing projectiles
             ProjectileID.Sets.CultistIsResistantTo[Projectile.type] = true;
 
-            ProjectileID.Sets.TrailCacheLength[Projectile.type] = 10;
-            ProjectileID.Sets.TrailingMode[Projectile.type] = 1; // 0 = simple trail, 1 = additive-style trail
+            // Cache a longer trail and use a trailing mode suited for custom drawing
+            ProjectileID.Sets.TrailCacheLength[Projectile.type] = 30;
+            ProjectileID.Sets.TrailingMode[Projectile.type] = 2; // cache exact positions for smoother custom trails
         }
 
         public override void SetDefaults() {
@@ -48,33 +49,57 @@ namespace AIO.Content.Projectiles {
         }
 
         public override bool PreDraw(ref Color lightColor) {
-            // Get texture
-            Texture2D texture = Terraria.GameContent.TextureAssets.Projectile[Projectile.type].Value;
+            // Additive trail similar to vanilla Chlorophyte bullet
+            Texture2D texture = TextureAssets.Projectile[Projectile.type].Value;
             Vector2 origin = texture.Size() / 2f;
 
-            // Draw old positions (trail)
-            for (int i = 0; i < Projectile.oldPos.Length; i++) {
-                Vector2 drawPos = Projectile.oldPos[i] + Projectile.Size / 2f - Main.screenPosition;
-                // Fade opacity as trail gets older
-                float opacity = (Projectile.oldPos.Length - i) / (float)Projectile.oldPos.Length;
+            // Switch to additive for the trail only
+            Main.spriteBatch.End();
+            Main.spriteBatch.Begin(
+                SpriteSortMode.Deferred,
+                BlendState.Additive,
+                SamplerState.LinearClamp,
+                DepthStencilState.None,
+                RasterizerState.CullNone,
+                null,
+                Main.GameViewMatrix.TransformationMatrix
+            );
 
-                // Bright green like Chlorophyte
-                Color trailColor = Color.LimeGreen * opacity;
+            for (int i = 1; i < Projectile.oldPos.Length; i++) {
+                Vector2 pos = Projectile.oldPos[i] + Projectile.Size / 2f - Main.screenPosition;
+                float t = i / (float)Projectile.oldPos.Length; // 0 (head) -> 1 (tail)
 
-                Main.spriteBatch.Draw(texture, drawPos, null, trailColor, Projectile.rotation, origin, Projectile.scale, SpriteEffects.None, 0f);
+                // Bright yellow-green near head fading to green tail
+                Color col = Color.Lerp(new Color(26, 238, 199), new Color(0, 240, 255), t) * (1f - t) * 0.9f;
+
+                // Slightly taper trail width
+                float scale = Projectile.scale * MathHelper.Lerp(0.6f, 1.2f, 1f - t);
+
+                Main.spriteBatch.Draw(texture, pos, null, col, Projectile.rotation, origin, scale, SpriteEffects.None, 0f);
             }
 
-            // Draw main projectile on top
+            // Restore normal blend state and draw the main projectile on top
+            Main.spriteBatch.End();
+            Main.spriteBatch.Begin(
+                SpriteSortMode.Deferred,
+                BlendState.AlphaBlend,
+                SamplerState.LinearClamp,
+                DepthStencilState.None,
+                RasterizerState.CullNone,
+                null,
+                Main.GameViewMatrix.TransformationMatrix
+            );
+
             Main.spriteBatch.Draw(texture, Projectile.Center - Main.screenPosition, null, Color.White, Projectile.rotation, origin, Projectile.scale, SpriteEffects.None, 0f);
 
             return false; // we've handled all drawing
         }
 
         public override void AI() {
-            float maxDetectRadius = 400f;
+            float maxDetectRadius = 1000f;
 
             // Add short delay before homing activates
-            if (DelayTimer < 10) {
+            if (DelayTimer < 5) {
                 DelayTimer += 1;
                 return;
             }
@@ -87,14 +112,6 @@ namespace AIO.Content.Projectiles {
                 }
             }
 
-            /**
-            if (Main.rand.NextBool(3)) { // 1-in-3 chance per tick
-                int dust = Dust.NewDust(Projectile.position, Projectile.width, Projectile.height, DustID.GreenTorch);
-                Main.dust[dust].noGravity = true;
-                Main.dust[dust].scale = 1.2f;
-            }
-            */
-
             // If we don't have a valid target, just keep going straight
             if (HomingTarget == null)
                 return;
@@ -102,24 +119,11 @@ namespace AIO.Content.Projectiles {
             float length = Projectile.velocity.Length();
             Vector2 toTarget = HomingTarget.Center - Projectile.Center;
 
-            // --------- HOMING SMOOTHING METHODS ---------
-
             // OPTION 1: Angle clamp (vanilla-like, predictable turns)
-            // Rotates projectile velocity toward target by a max of X degrees per frame
-            /**
             float targetAngle = Projectile.AngleTo(HomingTarget.Center);
             Projectile.velocity = Projectile.velocity.ToRotation()
-                .AngleTowards(targetAngle, MathHelper.ToRadians(3f)) // 3 degrees per tick
+                .AngleTowards(targetAngle, MathHelper.ToRadians(5f)) // 3 degrees per tick
                 .ToRotationVector2() * length;
-            */
-
-            // OPTION 2: Velocity Lerp (smoother, more "heat-seeking")
-            // Interpolates between current and desired velocity
-            float homingStrength = 0.5f; // larger = tighter turning
-            Vector2 desiredVelocity = toTarget.SafeNormalize(Vector2.Zero) * length;
-            Projectile.velocity = Vector2.Lerp(Projectile.velocity, desiredVelocity, homingStrength);
-
-            Projectile.rotation = Projectile.velocity.ToRotation();
         }
 
         private NPC FindLowestLifeNPC(float maxDetectDistance) {
