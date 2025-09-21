@@ -122,7 +122,7 @@ namespace AIO.Content.Projectiles {
             // OPTION 1: Angle clamp (vanilla-like, predictable turns)
             float targetAngle = Projectile.AngleTo(HomingTarget.Center);
             Projectile.velocity = Projectile.velocity.ToRotation()
-                .AngleTowards(targetAngle, MathHelper.ToRadians(5f)) // 3 degrees per tick
+                .AngleTowards(targetAngle, MathHelper.ToRadians(3f)) // 3 degrees per tick
                 .ToRotationVector2() * length;
         }
 
