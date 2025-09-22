@@ -40,6 +40,11 @@ Items: {
 		DisplayName: Foreground Glass Wall
 		Tooltip: ""
 	}
+
+	ForegroundPaint: {
+		Tooltip: ""
+		DisplayName: Foreground Paint
+	}
 }
 
 Tiles: {
