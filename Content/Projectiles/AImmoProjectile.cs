@@ -18,6 +18,27 @@ namespace AIO.Content.Projectiles {
         // ai[1] is used as a delay timer before homing starts
         public ref float DelayTimer => ref Projectile.ai[1];
 
+        // AI state variables stored in localAI
+        private ref float PreviousDistanceToTarget => ref Projectile.localAI[0];
+        private ref float MissDetectionTimer => ref Projectile.localAI[1];
+        private ref float ConfidenceLevel => ref Projectile.localAI[2];
+        
+        // Track target's previous position and velocity for better prediction
+        private Vector2 lastTargetPosition;
+        private Vector2 lastTargetVelocity;
+        private Vector2 predictedTargetAcceleration;
+        private int targetTrackingFrames;
+        
+        // AI behavior states
+        private enum AIState {
+            Seeking,      // Looking for target and initial approach
+            Tracking,     // Actively tracking with high confidence
+            Correcting,   // Detected potential miss, correcting course
+            Recovering    // Lost target or missed, trying to recover
+        }
+        
+        private AIState currentState = AIState.Seeking;
+
         public override void SetStaticDefaults() {
             // Keep consistent with vanilla: Cultists resist homing projectiles
             ProjectileID.Sets.CultistIsResistantTo[Projectile.type] = true;
@@ -78,8 +99,16 @@ namespace AIO.Content.Projectiles {
                     
                     float trailT = (i + stepT) / (float)Projectile.oldPos.Length; // Overall trail position
                     
-                    // Bright cyan-green near head fading to transparent
-                    Color col = Color.Lerp(new Color(26, 238, 199), new Color(0, 240, 255), trailT) * (1f - trailT) * 0.9f;
+                    // Change trail color based on AI state
+                    Color baseColor = currentState switch {
+                        AIState.Seeking => new Color(26, 238, 199),      // Cyan-green
+                        AIState.Tracking => new Color(0, 255, 100),      // Bright green (confident)
+                        AIState.Correcting => new Color(255, 150, 0),    // Orange (correcting)
+                        AIState.Recovering => new Color(255, 50, 50),    // Red (lost)
+                        _ => new Color(26, 238, 199)
+                    };
+                    
+                    Color col = Color.Lerp(baseColor, new Color(0, 240, 255), trailT) * (1f - trailT) * 0.9f;
 
                     // Draw individual pixels
                     Rectangle pixelRect = new Rectangle((int)pos.X - 1, (int)pos.Y - 1, 2, 2);
@@ -108,17 +137,16 @@ namespace AIO.Content.Projectiles {
         }
 
         public override void AI() {
-            float maxDetectRadius = 10000f;
-            float initialSpeed = 6f; // Start slow
-            float maxSpeed = 24f; // Maximum speed when accelerating
-            float accelerationRate = 0.5f; // How fast to accelerate
-
+            const float maxDetectRadius = 12000f;
+            const float minSpeed = 2f;
+            const float maxSpeed = 32f;
+            const float baseAcceleration = 0.3f;
+            
             // Add short delay before homing activates
-            if (DelayTimer < 5) { // Longer delay for better initial movement
+            if (DelayTimer < 5) {
                 DelayTimer += 1;
-                // Move straight during delay at initial speed
                 if (Projectile.velocity == Vector2.Zero) {
-                    Projectile.velocity = new Vector2(initialSpeed, 0).RotatedBy(Projectile.rotation);
+                    Projectile.velocity = new Vector2(8f, 0).RotatedBy(Projectile.rotation);
                 }
                 return;
             }
@@ -126,99 +154,300 @@ namespace AIO.Content.Projectiles {
             // The owning player is responsible for target selection
             if (Projectile.owner == Main.myPlayer) {
                 if (HomingTarget == null || !IsValidTarget(HomingTarget)) {
-                    HomingTarget = FindLowestLifeNPC(maxDetectRadius);
-                    Projectile.netUpdate = true; // sync to clients
+                    HomingTarget = FindOptimalTarget(maxDetectRadius);
+                    if (HomingTarget != null) {
+                        // Reset tracking when new target acquired
+                        targetTrackingFrames = 0;
+                        currentState = AIState.Seeking;
+                        ConfidenceLevel = 0.3f;
+                    }
+                    Projectile.netUpdate = true;
                 }
             }
 
-            // Get current speed once for reuse
-            float currentSpeed = Projectile.velocity.Length();
-
-            // If we don't have a valid target, maintain current velocity at initial speed
+            // No target behavior
             if (HomingTarget == null) {
-                if (currentSpeed != initialSpeed) {
-                    Projectile.velocity = Vector2.Normalize(Projectile.velocity) * initialSpeed;
-                }
-                Projectile.rotation = Projectile.velocity.ToRotation();
+                currentState = AIState.Recovering;
+                HandleNoTarget();
                 return;
             }
 
-            // Calculate distance to target for speed adjustment
-            float distanceToTarget = Vector2.Distance(Projectile.Center, HomingTarget.Center);
+            // Update target tracking data
+            UpdateTargetTracking();
             
-            // Accelerate based on having a target and distance
-            float targetSpeed = MathHelper.Lerp(maxSpeed, initialSpeed, Math.Min(distanceToTarget / 400f, 1f)); // Slower when very close
+            // AI decision making based on current situation
+            AnalyzeSituation();
             
-            if (currentSpeed < targetSpeed) {
-                currentSpeed = Math.Min(currentSpeed + accelerationRate, targetSpeed);
+            // Execute behavior based on current state
+            switch (currentState) {
+                case AIState.Seeking:
+                    HandleSeeking(minSpeed, maxSpeed, baseAcceleration);
+                    break;
+                case AIState.Tracking:
+                    HandleTracking(minSpeed, maxSpeed, baseAcceleration);
+                    break;
+                case AIState.Correcting:
+                    HandleCorrecting(minSpeed, maxSpeed, baseAcceleration);
+                    break;
+                case AIState.Recovering:
+                    HandleRecovering(minSpeed, maxSpeed, baseAcceleration);
+                    break;
             }
 
-            // Improved targeting with wall avoidance
-            Vector2 toTarget = HomingTarget.Center - Projectile.Center;
-            
-            // Check if direct path is blocked by walls
-            bool directPathBlocked = !Collision.CanHitLine(
-                Projectile.Center, 0, 0,
-                HomingTarget.Center, 0, 0
-            );
-            
-            Vector2 desiredDirection;
-            if (directPathBlocked) {
-                // Try to find a path around obstacles
-                Vector2 normalizedToTarget = Vector2.Normalize(toTarget);
-                Vector2 perpendicular = new Vector2(-normalizedToTarget.Y, normalizedToTarget.X);
-                
-                // Test both sides to find clearer path
-                Vector2 leftTest = Projectile.Center + (normalizedToTarget + perpendicular * 0.5f) * 100f;
-                Vector2 rightTest = Projectile.Center + (normalizedToTarget - perpendicular * 0.5f) * 100f;
-                
-                bool leftClear = Collision.CanHitLine(Projectile.Center, 0, 0, leftTest, 0, 0);
-                bool rightClear = Collision.CanHitLine(Projectile.Center, 0, 0, rightTest, 0, 0);
-                
-                if (leftClear && !rightClear) {
-                    desiredDirection = Vector2.Normalize(normalizedToTarget + perpendicular * 0.3f);
-                } else if (rightClear && !leftClear) {
-                    desiredDirection = Vector2.Normalize(normalizedToTarget - perpendicular * 0.3f);
-                } else {
-                    // If both or neither are clear, use direct path
-                    desiredDirection = normalizedToTarget;
-                }
-            } else {
-                // Direct path is clear
-                desiredDirection = Vector2.Normalize(toTarget);
-            }
-            
-            // Predict target movement for better accuracy
-            Vector2 predictedPosition = HomingTarget.Center + HomingTarget.velocity * 15f;
-            Vector2 toPredicted = Vector2.Normalize(predictedPosition - Projectile.Center);
-            
-            // Blend direct and predicted targeting
-            desiredDirection = Vector2.Normalize(Vector2.Lerp(desiredDirection, toPredicted, 0.6f));
-            
-            Vector2 desiredVelocity = desiredDirection * currentSpeed;
-            
-            // Smoothly turn towards target with aggressive turning
-            float turnRate = 0.2f; // Very aggressive turning
-            Projectile.velocity = Vector2.Lerp(Projectile.velocity, desiredVelocity, turnRate);
-            
-            // Ensure consistent speed
-            Projectile.velocity = Vector2.Normalize(Projectile.velocity) * currentSpeed;
-            
             // Update rotation to match velocity direction
             Projectile.rotation = Projectile.velocity.ToRotation();
         }
 
-        private NPC FindLowestLifeNPC(float maxDetectDistance) {
+        private void UpdateTargetTracking() {
+            if (HomingTarget == null) return;
+            
+            Vector2 currentTargetPos = HomingTarget.Center;
+            Vector2 currentTargetVel = HomingTarget.velocity;
+            
+            if (targetTrackingFrames > 0) {
+                // Calculate target acceleration for better prediction
+                Vector2 velocityChange = currentTargetVel - lastTargetVelocity;
+                predictedTargetAcceleration = Vector2.Lerp(predictedTargetAcceleration, velocityChange, 0.3f);
+            }
+            
+            lastTargetPosition = currentTargetPos;
+            lastTargetVelocity = currentTargetVel;
+            targetTrackingFrames++;
+        }
+
+        private void AnalyzeSituation() {
+            if (HomingTarget == null) return;
+            
+            float distanceToTarget = Vector2.Distance(Projectile.Center, HomingTarget.Center);
+            
+            // Miss detection - check if we're getting further from target
+            if (PreviousDistanceToTarget > 0) {
+                if (distanceToTarget > PreviousDistanceToTarget + 2f) {
+                    MissDetectionTimer++;
+                    if (MissDetectionTimer > 8) { // Detected potential miss
+                        if (currentState == AIState.Tracking) {
+                            currentState = AIState.Correcting;
+                            ConfidenceLevel = Math.Max(0.1f, ConfidenceLevel - 0.4f);
+                        }
+                    }
+                } else {
+                    MissDetectionTimer = Math.Max(0, MissDetectionTimer - 1);
+                    if (distanceToTarget < PreviousDistanceToTarget - 5f) {
+                        // Getting closer, increase confidence
+                        ConfidenceLevel = Math.Min(1f, ConfidenceLevel + 0.05f);
+                    }
+                }
+            }
+            
+            PreviousDistanceToTarget = distanceToTarget;
+            
+            // State transitions based on analysis
+            if (currentState == AIState.Seeking && ConfidenceLevel > 0.6f) {
+                currentState = AIState.Tracking;
+            } else if (currentState == AIState.Correcting && ConfidenceLevel > 0.4f && MissDetectionTimer <= 2) {
+                currentState = AIState.Tracking;
+            } else if (distanceToTarget > 2000f && currentState != AIState.Recovering) {
+                currentState = AIState.Recovering;
+                ConfidenceLevel = 0.2f;
+            }
+        }
+
+        private void HandleNoTarget() {
+            // Maintain current velocity but slow down gradually
+            float currentSpeed = Projectile.velocity.Length();
+            float targetSpeed = Math.Max(4f, currentSpeed * 0.98f);
+            
+            if (currentSpeed > 0) {
+                Projectile.velocity = Vector2.Normalize(Projectile.velocity) * targetSpeed;
+            }
+        }
+
+        private void HandleSeeking(float minSpeed, float maxSpeed, float baseAcceleration) {
+            Vector2 interceptPoint = CalculateInterceptPoint(2f); // Conservative prediction
+            Vector2 toIntercept = interceptPoint - Projectile.Center;
+            
+            float distanceToTarget = toIntercept.Length();
+            float currentSpeed = Projectile.velocity.Length();
+            
+            // Moderate speed during seeking
+            float targetSpeed = MathHelper.Lerp(8f, 18f, Math.Min(distanceToTarget / 600f, 1f));
+            
+            // Smooth acceleration
+            float acceleration = baseAcceleration * 0.8f;
+            if (currentSpeed < targetSpeed) {
+                currentSpeed = Math.Min(currentSpeed + acceleration, targetSpeed);
+            } else if (currentSpeed > targetSpeed) {
+                currentSpeed = Math.Max(currentSpeed - acceleration, targetSpeed);
+            }
+            
+            // Moderate turning rate during seeking
+            Vector2 desiredVelocity = Vector2.Normalize(toIntercept) * currentSpeed;
+            float turnRate = 0.12f;
+            Projectile.velocity = Vector2.Lerp(Projectile.velocity, desiredVelocity, turnRate);
+            Projectile.velocity = Vector2.Normalize(Projectile.velocity) * currentSpeed;
+        }
+
+        private void HandleTracking(float minSpeed, float maxSpeed, float baseAcceleration) {
+            Vector2 interceptPoint = CalculateInterceptPoint(4f); // Aggressive prediction
+            Vector2 toIntercept = interceptPoint - Projectile.Center;
+            
+            float distanceToTarget = toIntercept.Length();
+            float currentSpeed = Projectile.velocity.Length();
+            
+            // High speed when confident and tracking
+            float baseTargetSpeed = MathHelper.Lerp(maxSpeed * 0.7f, maxSpeed, ConfidenceLevel);
+            float targetSpeed = Math.Min(baseTargetSpeed, distanceToTarget / 10f + 8f); // Slow down when very close
+            
+            // Fast acceleration when tracking
+            float acceleration = baseAcceleration * (1f + ConfidenceLevel);
+            if (currentSpeed < targetSpeed) {
+                currentSpeed = Math.Min(currentSpeed + acceleration, targetSpeed);
+            }
+            
+            // High turning rate when confident
+            Vector2 desiredVelocity = Vector2.Normalize(toIntercept) * currentSpeed;
+            float turnRate = 0.25f * (0.5f + ConfidenceLevel * 0.5f);
+            Projectile.velocity = Vector2.Lerp(Projectile.velocity, desiredVelocity, turnRate);
+            Projectile.velocity = Vector2.Normalize(Projectile.velocity) * currentSpeed;
+        }
+
+        private void HandleCorrecting(float minSpeed, float maxSpeed, float baseAcceleration) {
+            Vector2 interceptPoint = CalculateInterceptPoint(1.5f); // Conservative prediction
+            Vector2 toIntercept = interceptPoint - Projectile.Center;
+            
+            float currentSpeed = Projectile.velocity.Length();
+            
+            // Slow down significantly to correct course
+            float targetSpeed = Math.Min(currentSpeed, minSpeed + 6f);
+            currentSpeed = Math.Max(currentSpeed - baseAcceleration * 1.5f, targetSpeed);
+            
+            // Very aggressive turning to correct
+            Vector2 desiredVelocity = Vector2.Normalize(toIntercept) * currentSpeed;
+            float turnRate = 0.35f; // Very high turn rate
+            Projectile.velocity = Vector2.Lerp(Projectile.velocity, desiredVelocity, turnRate);
+            Projectile.velocity = Vector2.Normalize(Projectile.velocity) * currentSpeed;
+            
+            // Reset miss detection timer as we're actively correcting
+            MissDetectionTimer = Math.Max(0, MissDetectionTimer - 2);
+        }
+
+        private void HandleRecovering(float minSpeed, float maxSpeed, float baseAcceleration) {
+            if (HomingTarget != null) {
+                Vector2 toTarget = HomingTarget.Center - Projectile.Center;
+                float distanceToTarget = toTarget.Length();
+                
+                // Slow approach while recovering
+                float currentSpeed = Projectile.velocity.Length();
+                float targetSpeed = Math.Min(10f, distanceToTarget / 100f + 4f);
+                
+                if (currentSpeed < targetSpeed) {
+                    currentSpeed = Math.Min(currentSpeed + baseAcceleration * 0.5f, targetSpeed);
+                } else {
+                    currentSpeed = Math.Max(currentSpeed - baseAcceleration * 0.5f, targetSpeed);
+                }
+                
+                // Gentle turning during recovery
+                Vector2 desiredVelocity = Vector2.Normalize(toTarget) * currentSpeed;
+                float turnRate = 0.08f;
+                Projectile.velocity = Vector2.Lerp(Projectile.velocity, desiredVelocity, turnRate);
+                Projectile.velocity = Vector2.Normalize(Projectile.velocity) * currentSpeed;
+                
+                // Gradually rebuild confidence
+                ConfidenceLevel = Math.Min(0.5f, ConfidenceLevel + 0.01f);
+                
+                if (distanceToTarget < 800f) {
+                    currentState = AIState.Seeking;
+                }
+            }
+        }
+
+        private Vector2 CalculateInterceptPoint(float predictionStrength) {
+            if (HomingTarget == null || targetTrackingFrames < 3) {
+                return HomingTarget?.Center ?? Projectile.Center;
+            }
+            
+            Vector2 targetPos = HomingTarget.Center;
+            Vector2 targetVel = HomingTarget.velocity;
+            
+            // Calculate time to intercept using iterative approach
+            float projectileSpeed = Projectile.velocity.Length();
+            if (projectileSpeed < 1f) projectileSpeed = 8f; // fallback speed
+            
+            Vector2 relativePos = targetPos - Projectile.Center;
+            float timeToIntercept = relativePos.Length() / projectileSpeed;
+            
+            // Iterative refinement for better accuracy
+            for (int i = 0; i < 3; i++) {
+                Vector2 predictedPos = targetPos + targetVel * timeToIntercept * predictionStrength;
+                
+                // Include acceleration prediction for more advanced targets
+                if (targetTrackingFrames > 10) {
+                    predictedPos += predictedTargetAcceleration * timeToIntercept * timeToIntercept * 0.5f * predictionStrength;
+                }
+                
+                float newDistance = Vector2.Distance(Projectile.Center, predictedPos);
+                timeToIntercept = newDistance / projectileSpeed;
+            }
+            
+            Vector2 finalPredictedPos = targetPos + targetVel * timeToIntercept * predictionStrength;
+            
+            // Add acceleration component
+            if (targetTrackingFrames > 10) {
+                finalPredictedPos += predictedTargetAcceleration * timeToIntercept * timeToIntercept * 0.5f * predictionStrength;
+            }
+            
+            // Wall avoidance check
+            if (!Collision.CanHitLine(Projectile.Center, 0, 0, finalPredictedPos, 0, 0)) {
+                // Find alternative path around obstacles
+                Vector2 toTarget = Vector2.Normalize(finalPredictedPos - Projectile.Center);
+                Vector2 perpendicular = new Vector2(-toTarget.Y, toTarget.X);
+                
+                Vector2 leftPath = finalPredictedPos + perpendicular * 80f;
+                Vector2 rightPath = finalPredictedPos - perpendicular * 80f;
+                
+                bool leftClear = Collision.CanHitLine(Projectile.Center, 0, 0, leftPath, 0, 0);
+                bool rightClear = Collision.CanHitLine(Projectile.Center, 0, 0, rightPath, 0, 0);
+                
+                if (leftClear && !rightClear) {
+                    finalPredictedPos = leftPath;
+                } else if (rightClear && !leftClear) {
+                    finalPredictedPos = rightPath;
+                }
+                // If neither or both are clear, stick with original prediction
+            }
+            
+            return finalPredictedPos;
+        }
+
+        private NPC FindOptimalTarget(float maxDetectDistance) {
             NPC chosen = null;
-            float lowestLife = float.MaxValue;
+            float bestScore = float.MinValue;
             float sqrMaxDetect = maxDetectDistance * maxDetectDistance;
 
             foreach (NPC npc in Main.ActiveNPCs) {
                 if (IsValidTarget(npc)) {
                     float sqrDistance = Vector2.DistanceSquared(Projectile.Center, npc.Center);
-                    if (sqrDistance < sqrMaxDetect && npc.life < lowestLife) {
-                        lowestLife = npc.life;
-                        chosen = npc;
+                    if (sqrDistance < sqrMaxDetect) {
+                        // Scoring system considering multiple factors
+                        float distance = (float)Math.Sqrt(sqrDistance);
+                        float distanceScore = 1f - (distance / maxDetectDistance); // Closer = better
+                        
+                        float healthScore = 1f - (npc.life / (float)npc.lifeMax); // Lower health = better
+                        
+                        // Prefer targets that are easier to intercept (slower or predictable movement)
+                        float velocityMagnitude = npc.velocity.Length();
+                        float mobilityScore = 1f - Math.Min(velocityMagnitude / 20f, 1f); // Slower = better
+                        
+                        // Line of sight bonus
+                        float losScore = Collision.CanHitLine(Projectile.Center, 0, 0, npc.Center, 0, 0) ? 1f : 0.3f;
+                        
+                        // Combined score with weights
+                        float totalScore = distanceScore * 0.4f + healthScore * 0.3f + mobilityScore * 0.2f + losScore * 0.1f;
+                        
+                        if (totalScore > bestScore) {
+                            bestScore = totalScore;
+                            chosen = npc;
+                        }
                     }
                 }
             }
@@ -227,15 +456,10 @@ namespace AIO.Content.Projectiles {
         }
 
         private bool IsValidTarget(NPC target) {
-            // Enhanced target validation with better line of sight check
             return target.CanBeChasedBy()
                 && !target.friendly
                 && target.life > 0
-                && target.active
-                && Collision.CanHitLine(
-                    Projectile.Center, 0, 0,
-                    target.Center, 0, 0
-                );
+                && target.active;
         }
 
         public override void OnKill(int timeLeft) {
