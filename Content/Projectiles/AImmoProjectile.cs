@@ -2,6 +2,7 @@
 using Microsoft.Xna.Framework.Graphics;
 using System;
 using Terraria;
+using Terraria.Audio;
 using Terraria.GameContent;
 using Terraria.ID;
 using Terraria.ModLoader;
@@ -150,6 +151,12 @@ namespace AIO.Content.Projectiles {
                 && !target.friendly
                 && target.life > 0
                 && Collision.CanHit(Projectile.Center, 1, 1, target.position, target.width, target.height);
+        }
+
+        public override void OnKill(int timeLeft) {
+            // This code and the similar code above in OnTileCollide spawn dust from the tiles collided with. SoundID.Item10 is the bounce sound you hear.
+            Collision.HitTiles(Projectile.position + Projectile.velocity, Projectile.velocity, Projectile.width, Projectile.height);
+            SoundEngine.PlaySound(SoundID.Item10, Projectile.position);
         }
     }
 }
