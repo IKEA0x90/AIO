@@ -32,7 +32,12 @@ Items: {
 	}
 
 	AImmo: {
-		DisplayName: A Immo
+		DisplayName: AImmo
+		Tooltip: Cyberpunk is here
+	}
+
+	ForegroundGlassWall: {
+		DisplayName: Foreground Glass Wall
 		Tooltip: ""
 	}
 }
@@ -48,4 +53,4 @@ WorldGen: {
 	MoltenOrePassMessage: Solidifying lava
 }
 
-Projectiles.AImmoProjectile.DisplayName: A Immo Projectile
+Projectiles.AImmoProjectile.DisplayName: AImmo
