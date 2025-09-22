@@ -21,7 +21,7 @@ namespace AIO.Content {
             var resultItem = ModContent.GetInstance<Items.Placeable.ForegroundGlassWall>();
             resultItem.CreateRecipe(25).
                 AddIngredient(ItemID.GlassWall, 25).
-                AddTile(TileID.GlassKiln);
+                AddTile(TileID.GlassKiln).Register();
 
             Recipe recipe1 = Recipe.Create(ItemID.GlassWall, 25);
             recipe1.AddIngredient<Items.Placeable.ForegroundGlassWall>(25);
