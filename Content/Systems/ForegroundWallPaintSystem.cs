@@ -100,7 +100,8 @@ namespace AIO.Content.Systems {
         }
 
         public override void ModifyInterfaceLayers(System.Collections.Generic.List<GameInterfaceLayer> layers) {
-            int index = layers.FindIndex(layer => layer.Name.Equals("Vanilla: Mouse Text"));
+            //int index = layers.FindIndex(layer => layer.Name.Equals("Vanilla: Inventory"));
+            int index = 0;
             if (index != -1) {
                 layers.Insert(index, new LegacyGameInterfaceLayer(
                     "AIO: Foreground Painted Walls",
