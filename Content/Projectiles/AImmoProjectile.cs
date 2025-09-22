@@ -38,7 +38,7 @@ namespace AIO.Content.Projectiles {
             Projectile.light = 0.5f;
 
             Projectile.alpha = 255;
-            Projectile.extraUpdates = 1;
+            Projectile.extraUpdates = 0;
 
             Projectile.scale = 1.2f;
             Projectile.timeLeft = 10000;
@@ -114,7 +114,7 @@ namespace AIO.Content.Projectiles {
             float accelerationRate = 0.5f; // How fast to accelerate
 
             // Add short delay before homing activates
-            if (DelayTimer < 10) { // Longer delay for better initial movement
+            if (DelayTimer < 5) { // Longer delay for better initial movement
                 DelayTimer += 1;
                 // Move straight during delay at initial speed
                 if (Projectile.velocity == Vector2.Zero) {
