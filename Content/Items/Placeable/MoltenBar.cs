@@ -9,10 +9,7 @@ namespace AIO.Content.Items.Placeable
 	{
 		public override void SetStaticDefaults() {
 			Item.ResearchUnlockCount = 25;
-			ItemID.Sets.SortingPriorityMaterials[Item.type] = 65; // Influences the inventory sort order. 59 is PlatinumBar, higher is more valuable.
-
-			// The Chlorophyte Extractinator can exchange items. Here we tell it to allow a one-way exchanging of 5 ExampleBar for 2 ChlorophyteBar.
-			ItemTrader.ChlorophyteExtractinator.AddOption_OneWay(Type, 5, ItemID.ChlorophyteBar, 2);
+			ItemID.Sets.SortingPriorityMaterials[Item.type] = 65; // Influences the inventory sort order. 59 is PlatinumBar, higher is more valuable.W
 		}
 
 		public override void SetDefaults() {
@@ -26,7 +23,7 @@ namespace AIO.Content.Items.Placeable
 		// Please see Content/ExampleRecipes.cs for a detailed explanation of recipe creation.
 		public override void AddRecipes() {
 			CreateRecipe()
-				.AddIngredient<AIOre>(4)
+				.AddIngredient<MoltenOre>(6)
 				.AddTile(TileID.Furnaces)
 				.Register();
 		}

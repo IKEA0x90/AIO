@@ -36,6 +36,14 @@ namespace AIO.Content.Tiles {
             MinPick = 200;
             Main.rare = ItemRarityID.Yellow;
         }
+
+        public override void ModifyLight(int i, int j, ref float r, ref float g, ref float b) {
+            // Pylons in vanilla light up, which is just a simple functionality we add using ModTile's ModifyLight.
+            // Let's just add a simple white light for our pylon:
+            r = 222;
+            g = 56;
+            b = 32;
+        }
     }
 
     // ExampleOreSystem contains code related to spawning ExampleOre. It contains both spawning ore during world generation, seen in ModifyWorldGenTasks, and spawning ore after defeating a boss, seen in BlessWorldWithExampleOre and MinionBossBody.OnKill.
