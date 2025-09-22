@@ -38,10 +38,10 @@ namespace AIO.Content.Projectiles {
             Projectile.light = 0.5f;
 
             Projectile.alpha = 255;
-            Projectile.extraUpdates = 8;
+            Projectile.extraUpdates = 1;
 
             Projectile.scale = 1.2f;
-            Projectile.timeLeft = 1200;
+            Projectile.timeLeft = 10000;
 
             Projectile.DamageType = DamageClass.Ranged;
         }
@@ -108,7 +108,7 @@ namespace AIO.Content.Projectiles {
         }
 
         public override void AI() {
-            float maxDetectRadius = 1000f;
+            float maxDetectRadius = 10000f;
             float initialSpeed = 6f; // Start slow
             float maxSpeed = 24f; // Maximum speed when accelerating
             float accelerationRate = 0.5f; // How fast to accelerate
