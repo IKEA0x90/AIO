@@ -11,7 +11,7 @@ namespace AIO.Content.Walls {
     public class ForegroundGlassWall : ModWall {
         public override void SetStaticDefaults() {
             // Clone vanilla Glass Wall stats
-            Main.wallHouse[Type] = Main.wallHouse[WallID.Glass];
+            Main.wallHouse[Type] = false;
             DustType = DustID.Glass;
             AddMapEntry(new Color(200, 245, 255));
         }
@@ -27,7 +27,7 @@ namespace AIO.Content.Walls {
             int index = layers.FindIndex(layer => layer.Name.Equals("Vanilla: Mouse Text"));
             if (index != -1) {
                 layers.Insert(index, new LegacyGameInterfaceLayer(
-                    "YourMod: Foreground Glass Wall",
+                    "AIO: Foreground Glass Wall",
                     delegate {
                         DrawForegroundWalls(Main.spriteBatch);
                         return true;
@@ -49,7 +49,7 @@ namespace AIO.Content.Walls {
                 Main.GameViewMatrix.TransformationMatrix
             );
 
-            Texture2D wallTexture = TextureAssets.Wall[WallID.Glass].Value;
+            Texture2D wallTexture = ModContent.Request<Texture2D>("AIO/Content/Walls/ForegroundGlassWall").Value;
 
             // Calculate visible tile range for performance
             int startX = (int)(Main.screenPosition.X / 16f) - 1;
