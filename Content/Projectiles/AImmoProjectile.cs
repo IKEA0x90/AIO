@@ -1,6 +1,7 @@
 ﻿using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using System;
+using System.Collections.Generic;
 using Terraria;
 using Terraria.Audio;
 using Terraria.GameContent;
@@ -32,6 +33,10 @@ namespace AIO.Content.Projectiles {
         // Smoothed velocities/accelerations to avoid impulsive jumps (fixes ground dive bug)
         private Vector2 smoothedTargetVelocity;
         private Vector2 smoothedTargetAcceleration;
+
+        // Path validity cache
+        private int pathCheckCooldown;
+        private bool hasPathToTarget = true;
 
         // AI behavior states
         private enum AIState {
@@ -163,6 +168,10 @@ namespace AIO.Content.Projectiles {
                         // initialize smoothing
                         smoothedTargetVelocity = HomingTarget.velocity; // px/tick
                         smoothedTargetAcceleration = Vector2.Zero;      // px/tick^2
+
+                        // path cache init
+                        pathCheckCooldown = 0;
+                        hasPathToTarget = true;
                     }
                     Projectile.netUpdate = true;
                 }
@@ -173,6 +182,20 @@ namespace AIO.Content.Projectiles {
                 HandleNoTarget();
                 Projectile.rotation = Projectile.velocity.ToRotation();
                 return;
+            }
+
+            // Re-check path occasionally; drop target if enclosed/no path
+            if (pathCheckCooldown-- <= 0) {
+                pathCheckCooldown = 20; // every ~1/3 second
+                hasPathToTarget = QuickPathExists(Projectile.Center, HomingTarget.Center);
+                if (!hasPathToTarget) {
+                    // If no path and no line, disengage
+                    HomingTarget = null;
+                    currentState = AIState.Recovering;
+                    Projectile.netUpdate = true;
+                    Projectile.rotation = Projectile.velocity.ToRotation();
+                    return;
+                }
             }
 
             // Update target tracking & smoothing
@@ -204,7 +227,7 @@ namespace AIO.Content.Projectiles {
             Vector2 tileAvoid = ComputeImmediateTileAvoidance(Projectile.Center, Projectile.velocity);
             if (tileAvoid != Vector2.Zero) {
                 // nudge velocity away from collision
-                Projectile.velocity = Vector2.Lerp(Projectile.velocity, Projectile.velocity + tileAvoid * Projectile.velocity.Length() * 0.75f, 0.5f);
+                Projectile.velocity = Vector2.Lerp(Projectile.velocity, Projectile.velocity + tileAvoid * Projectile.velocity.Length() * 0.75f, 0.6f);
             }
 
             Projectile.rotation = Projectile.velocity.ToRotation();
@@ -308,7 +331,7 @@ namespace AIO.Content.Projectiles {
             Vector2 desiredVelocity = (toIntercept.LengthSquared() < 1f) ? Projectile.velocity : Vector2.Normalize(toIntercept) * currentSpeed;
 
             // Avoid obstacles: steering / potential field
-            desiredVelocity = ApplyAvoidance(desiredVelocity, 220f);
+            desiredVelocity = ApplyAvoidance(desiredVelocity, 240f);
 
             float turnRate = 0.12f;
             Projectile.velocity = Vector2.Lerp(Projectile.velocity, desiredVelocity, turnRate);
@@ -333,9 +356,9 @@ namespace AIO.Content.Projectiles {
             Vector2 desiredVelocity = (toIntercept.LengthSquared() < 1f) ? Projectile.velocity : Vector2.Normalize(toIntercept) * currentSpeed;
 
             // Stronger avoidance when confident (so it doesn't crash)
-            desiredVelocity = ApplyAvoidance(desiredVelocity, 320f);
+            desiredVelocity = ApplyAvoidance(desiredVelocity, 360f);
 
-            float turnRate = 0.25f * (0.5f + ConfidenceLevel * 0.5f);
+            float turnRate = 0.20f * (0.5f + ConfidenceLevel * 0.5f);
             Projectile.velocity = Vector2.Lerp(Projectile.velocity, desiredVelocity, turnRate);
             Projectile.velocity = Vector2.Normalize(Projectile.velocity) * currentSpeed;
         }
@@ -352,7 +375,7 @@ namespace AIO.Content.Projectiles {
             Vector2 desiredVelocity = (toIntercept.LengthSquared() < 1f) ? Projectile.velocity : Vector2.Normalize(toIntercept) * currentSpeed;
 
             // Strong avoidance + very aggressive turning
-            desiredVelocity = ApplyAvoidance(desiredVelocity, 260f, preferUpwardBias: true);
+            desiredVelocity = ApplyAvoidance(desiredVelocity, 300f, preferUpwardBias: true);
 
             float turnRate = 0.35f;
             Projectile.velocity = Vector2.Lerp(Projectile.velocity, desiredVelocity, turnRate);
@@ -377,7 +400,7 @@ namespace AIO.Content.Projectiles {
 
                 Vector2 desiredVelocity = Vector2.Normalize(toTarget) * currentSpeed;
 
-                desiredVelocity = ApplyAvoidance(desiredVelocity, 200f);
+                desiredVelocity = ApplyAvoidance(desiredVelocity, 220f);
 
                 float turnRate = 0.08f;
                 Projectile.velocity = Vector2.Lerp(Projectile.velocity, desiredVelocity, turnRate);
@@ -505,7 +528,16 @@ namespace AIO.Content.Projectiles {
 
             // Blend the lead to avoid over-anticipation; map predictionStrength to a 0..1 lead factor
             float lead = MathHelper.Clamp(predictionStrength / 4.5f, 0.35f, 0.85f);
-            Vector2 blendedPredPos = Vector2.Lerp(HomingTarget.Center, finalPredPos, lead);
+
+            // Dynamically reduce lead for volatile motion (e.g., jumps)
+            float accelMag = smoothedTargetAcceleration.Length();
+            float vertVel = Math.Abs(smoothedTargetVelocity.Y);
+            float volatility = MathHelper.Clamp(accelMag * 1.5f + Math.Max(0f, vertVel - 2f) * 0.06f, 0f, 0.6f);
+            if (MissDetectionTimer > 0) volatility = Math.Min(0.75f, volatility + 0.1f);
+            float dynLead = lead * (1f - volatility);
+            dynLead = MathHelper.Clamp(dynLead, 0.25f, lead);
+
+            Vector2 blendedPredPos = Vector2.Lerp(HomingTarget.Center, finalPredPos, dynLead);
 
             // If target is falling (positive Y velocity) and affected by gravity, avoid aiming too far below its current Y to prevent ground-dives
             if (!HomingTarget.noGravity && smoothedTargetVelocity.Y > 0.5f) {
@@ -552,6 +584,7 @@ namespace AIO.Content.Projectiles {
         /// - cast several rays around the desired direction and choose the best
         /// - add repulsive vector from nearby solid tiles
         /// - optionally prefer an upward bias to avoid ground collisions
+        /// - slide along walls when directly ahead is blocked
         /// </summary>
         private Vector2 ApplyAvoidance(Vector2 desiredVelocity, float lookAheadDistance, bool preferUpwardBias = false) {
             if (desiredVelocity == Vector2.Zero)
@@ -561,9 +594,17 @@ namespace AIO.Content.Projectiles {
             float desiredSpeed = desiredVelocity.Length();
             Vector2 desiredDir = Vector2.Normalize(desiredVelocity);
 
-            // 1) Repulsive field from nearby tiles
+            // 0) If the path directly ahead is blocked soon, try sliding along the wall
+            float forwardClearFrac = RayClearanceFraction(origin, desiredDir, lookAheadDistance, out Vector2 firstBlockNormal);
+            if (forwardClearFrac < 0.25f) {
+                if (TryGetWallSlideDir(origin, desiredDir, lookAheadDistance * 0.7f, firstBlockNormal, out var slideDir)) {
+                    desiredDir = Vector2.Normalize(Vector2.Lerp(desiredDir, slideDir, 0.8f));
+                }
+            }
+
+            // 1) Repulsive field from nearby tiles (stronger and wider)
             Vector2 repulse = Vector2.Zero;
-            int tileRadius = 6; // tiles to scan around projectile
+            int tileRadius = 8; // tiles to scan around projectile
             int px = (int)(origin.X / 16f);
             int py = (int)(origin.Y / 16f);
             for (int dx = -tileRadius; dx <= tileRadius; dx++) {
@@ -572,24 +613,21 @@ namespace AIO.Content.Projectiles {
                     int ty = py + dy;
                     if (tx < 0 || tx >= Main.maxTilesX || ty < 0 || ty >= Main.maxTilesY)
                         continue;
-                    // quick solid tile test
-                    if (Collision.SolidTiles(tx, ty, tx + 1, ty + 1)) {
+                    if (Collision.SolidTiles(tx, ty, tx, ty)) {
                         Vector2 tileCenter = new Vector2(tx * 16 + 8, ty * 16 + 8);
                         float dist = Vector2.Distance(tileCenter, origin);
-                        if (dist <= 0.001f)
+                        if (dist <= 0.01f)
                             continue;
                         float influence = MathHelper.Clamp(1f - (dist / (tileRadius * 16f)), 0f, 1f);
                         Vector2 away = Vector2.Normalize(origin - tileCenter) * influence;
-                        repulse += away * (1f + (tileRadius - Math.Abs(dx) - Math.Abs(dy)) * 0.05f);
+                        repulse += away * (1.2f + (tileRadius - Math.Abs(dx) - Math.Abs(dy)) * 0.03f);
                     }
                 }
             }
+            repulse *= 1.5f;
 
-            // scale repulsion
-            repulse *= 1.35f;
-
-            // 2) Ray-sample candidate directions (prefer those close to desiredDir but with clear line)
-            int sampleCount = 11;
+            // 2) Ray-sample candidate directions with clearance scoring
+            int sampleCount = 17;
             float maxAngle = MathHelper.PiOver2; // +/- 90 degrees
             float bestScore = float.MinValue;
             Vector2 bestDir = desiredDir;
@@ -597,35 +635,24 @@ namespace AIO.Content.Projectiles {
             for (int i = 0; i < sampleCount; i++) {
                 float t = i / (float)(sampleCount - 1); // 0..1
                 float angle = MathHelper.Lerp(-maxAngle, maxAngle, t);
-                // shape samples so center samples are tried first (bias to desired)
-                float bias = (float)Math.Cos((t - 0.5f) * Math.PI);
-                Vector2 sampleDir = desiredDir.RotatedBy(angle * (1f - Math.Abs(Vector2.Dot(desiredDir, Vector2.UnitY)))); // gentle bias
+                Vector2 sampleDir = desiredDir.RotatedBy(angle * (1f - Math.Abs(Vector2.Dot(desiredDir, Vector2.UnitY))));
 
-                Vector2 probe = origin + sampleDir * lookAheadDistance;
-                bool clear = Collision.CanHitLine(origin, 0, 0, probe, 0, 0);
-                // score: prefer closeness to desiredDir and clear lines, penalize collisions
-                float dirScore = Vector2.Dot(desiredDir, sampleDir);
-                float clearanceScore = clear ? 1f : 0f;
-                float score = dirScore * 0.8f + clearanceScore * 0.4f + 0.2f * bias;
-                // if it's clear, reward proximity of line (use distance to nearest tile as tiebreaker)
-                if (!clear)
-                    score -= 0.5f;
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestDir = sampleDir;
-                }
+                float clearanceFrac = RayClearanceFraction(origin, sampleDir, lookAheadDistance, out _);
+                float dirScore = Vector2.Dot(desiredDir, sampleDir) * 0.8f;
+                float clearanceScore = clearanceFrac; // 0..1
+                float score = dirScore * 0.6f + clearanceScore * 0.7f + (float)Math.Cos((t - 0.5f) * Math.PI) * 0.1f;
+
+                if (score > bestScore) { bestScore = score; bestDir = sampleDir; }
             }
 
             // 3) Upward bias if requested or if the ray ahead detects ground collision soon
-            Vector2 forwardProbe = origin + desiredDir * Math.Min(lookAheadDistance, 160f);
-            bool forwardClear = Collision.CanHitLine(origin, 0, 0, forwardProbe, 0, 0);
             Vector2 upwardBias = Vector2.Zero;
-            if (!forwardClear || preferUpwardBias) {
+            if (preferUpwardBias || forwardClearFrac < 0.35f) {
                 upwardBias = new Vector2(0, -1f) * 0.9f;
             }
 
             // combine bestDir, repulsion, and upward bias
-            Vector2 combined = bestDir + repulse * 0.6f + upwardBias * 0.8f;
+            Vector2 combined = bestDir + repulse * 0.7f + upwardBias * 0.8f;
             if (combined == Vector2.Zero)
                 combined = bestDir;
             combined = Vector2.Normalize(combined) * desiredSpeed;
@@ -642,30 +669,18 @@ namespace AIO.Content.Projectiles {
                 return Vector2.Zero;
 
             float look = Math.Min(64f + vel.Length() * 3f, 220f);
-            Vector2 probe = origin + Vector2.Normalize(vel) * look;
-
-            // If direct line is blocked, try offsetting upward/sideways
-            if (!Collision.CanHitLine(origin, 0, 0, probe, 0, 0)) {
-                // find the nearest collision point by stepping
-                int steps = 12;
-                for (int i = 1; i <= steps; i++) {
-                    float t = i / (float)steps;
-                    Vector2 p = Vector2.Lerp(origin, probe, t);
-                    Rectangle checkRect = new Rectangle((int)(p.X - Projectile.width / 2f), (int)(p.Y - Projectile.height / 2f), Projectile.width, Projectile.height);
-                    if (Collision.SolidCollision(new Vector2(checkRect.X, checkRect.Y), checkRect.Width, checkRect.Height)) {
-                        // compute avoidance vector away from the tile center
-                        int tx = (int)(p.X / 16f);
-                        int ty = (int)(p.Y / 16f);
-                        Vector2 tileCenter = new Vector2(tx * 16 + 8, ty * 16 + 8);
-                        Vector2 away = Vector2.Normalize(origin - tileCenter);
-                        // prefer upward if tile is mostly below
-                        if (away.Y > -0.2f)
-                            away.Y = -0.6f; // bias up
-                        return away;
-                    }
+            Vector2 dir = Vector2.Normalize(vel);
+            float clear = RayClearanceFraction(origin, dir, look, out Vector2 normal);
+            if (clear < 0.25f) {
+                // prefer sliding tangentially along the obstacle rather than only pushing up
+                if (TryGetWallSlideDir(origin, dir, look * 0.7f, normal, out var slide)) {
+                    return slide * 0.9f;
                 }
-                // general fallback: upward nudge
-                return new Vector2(0, -0.6f);
+
+                Vector2 away = normal;
+                if (away.Y > -0.2f)
+                    away.Y = -0.6f; // bias up a bit
+                return away;
             }
 
             return Vector2.Zero;
@@ -688,7 +703,13 @@ namespace AIO.Content.Projectiles {
                         float velocityMagnitude = npc.velocity.Length();
                         float mobilityScore = 1f - Math.Min(velocityMagnitude / 20f, 1f); // Slower = better
 
-                        float losScore = Collision.CanHitLine(Projectile.Center, 0, 0, npc.Center, 0, 0) ? 1f : 0.3f;
+                        bool line = Collision.CanHitLine(Projectile.Center, 0, 0, npc.Center, 0, 0);
+                        float losScore = line ? 1f : 0.3f;
+
+                        // Quick path feasibility: if no LOS, ensure a path exists within a reasonable tile radius
+                        bool pathOk = line || QuickPathExists(Projectile.Center, npc.Center, 48);
+                        if (!pathOk)
+                            continue; // do not target enclosed/no-path NPCs
 
                         float totalScore = distanceScore * 0.45f + healthScore * 0.25f + mobilityScore * 0.15f + losScore * 0.15f;
 
@@ -714,6 +735,145 @@ namespace AIO.Content.Projectiles {
         public override void OnKill(int timeLeft) {
             Collision.HitTiles(Projectile.position + Projectile.velocity, Projectile.velocity, Projectile.width, Projectile.height);
             SoundEngine.PlaySound(SoundID.Item10, Projectile.position);
+        }
+
+        // ====== Helper: Ray clearance fraction (0..1) and first collision normal ======
+        private float RayClearanceFraction(Vector2 origin, Vector2 dir, float maxDistance, out Vector2 approxNormal) {
+            approxNormal = Vector2.Zero;
+            if (dir == Vector2.Zero) return 1f;
+            dir = Vector2.Normalize(dir);
+
+            int steps = Math.Max(6, (int)(maxDistance / 12f));
+            Vector2 step = dir * (maxDistance / steps);
+            Vector2 pos = origin;
+            for (int i = 1; i <= steps; i++) {
+                pos += step;
+                Rectangle checkRect = new Rectangle((int)(pos.X - Projectile.width / 2f), (int)(pos.Y - Projectile.height / 2f), Projectile.width, Projectile.height);
+                if (Collision.SolidCollision(new Vector2(checkRect.X, checkRect.Y), checkRect.Width, checkRect.Height)) {
+                    // collision at this step -> estimate normal by sampling tile center
+                    int tx = (int)(pos.X / 16f);
+                    int ty = (int)(pos.Y / 16f);
+                    Vector2 tileCenter = new Vector2(tx * 16 + 8, ty * 16 + 8);
+                    Vector2 away = origin - tileCenter;
+                    if (away.LengthSquared() > 0.001f)
+                        approxNormal = Vector2.Normalize(away);
+                    else
+                        approxNormal = -dir; // fallback
+                    return (i - 1) / (float)steps;
+                }
+            }
+            return 1f;
+        }
+
+        private bool TryGetWallSlideDir(Vector2 origin, Vector2 desiredDir, float lookAhead, Vector2 approxNormal, out Vector2 slideDir) {
+            slideDir = Vector2.Zero;
+            if (desiredDir == Vector2.Zero)
+                return false;
+
+            Vector2 n = approxNormal;
+            if (n == Vector2.Zero) {
+                // derive from first hit if possible
+                float frac = RayClearanceFraction(origin, desiredDir, lookAhead, out n);
+                if (frac >= 1f)
+                    return false;
+            }
+            n = Vector2.Normalize(n);
+            Vector2 t1 = new Vector2(-n.Y, n.X);
+            Vector2 t2 = -t1;
+
+            // choose tangent closer to desiredDir and with better clearance
+            float d1 = Vector2.Dot(t1, desiredDir);
+            float d2 = Vector2.Dot(t2, desiredDir);
+
+            float c1 = RayClearanceFraction(origin, t1, Math.Min(lookAhead, 160f), out _);
+            float c2 = RayClearanceFraction(origin, t2, Math.Min(lookAhead, 160f), out _);
+
+            float score1 = d1 * 0.6f + c1 * 0.7f;
+            float score2 = d2 * 0.6f + c2 * 0.7f;
+
+            slideDir = score1 >= score2 ? t1 : t2;
+            return true;
+        }
+
+        // ====== Helper: Quick tile path existence using bounded BFS in tile space ======
+        private bool QuickPathExists(Vector2 startWorld, Vector2 endWorld, int tileRadiusLimit = 56) {
+            Point start = new Point((int)(startWorld.X / 16f), (int)(startWorld.Y / 16f));
+            Point goal = new Point((int)(endWorld.X / 16f), (int)(endWorld.Y / 16f));
+
+            int maxR = tileRadiusLimit;
+            if (Math.Abs(goal.X - start.X) + Math.Abs(goal.Y - start.Y) > maxR * 2)
+                return false; // too far for cheap check
+
+            int minX = Math.Max(0, start.X - maxR);
+            int maxX = Math.Min(Main.maxTilesX - 1, start.X + maxR);
+            int minY = Math.Max(0, start.Y - maxR);
+            int maxY = Math.Min(Main.maxTilesY - 1, start.Y + maxR);
+
+            int width = maxX - minX + 1;
+            int height = maxY - minY + 1;
+            if (width <= 0 || height <= 0) return false;
+
+            // visited bitmap
+            bool[,] visited = new bool[width, height];
+            Queue<Point> q = new Queue<Point>();
+
+            Point ClampToBounds(Point p) => new Point(Math.Clamp(p.X, minX, maxX), Math.Clamp(p.Y, minY, maxY));
+
+            Point s = ClampToBounds(start);
+            Point g = ClampToBounds(goal);
+            int sx = s.X - minX, sy = s.Y - minY;
+            if (IsTileBlocked(s.X, s.Y) || IsTileBlocked(g.X, g.Y))
+                return false;
+
+            visited[sx, sy] = true;
+            q.Enqueue(s);
+
+            // 8 directions but disallow cutting corners through solid blocks
+            ReadOnlySpan<Point> dirs = stackalloc Point[8] {
+                new Point(1,0), new Point(-1,0), new Point(0,1), new Point(0,-1),
+                new Point(1,1), new Point(1,-1), new Point(-1,1), new Point(-1,-1)
+            };
+
+            int iter = 0;
+            int maxIter = width * height; // cap
+
+            while (q.Count > 0 && iter++ < maxIter) {
+                var p = q.Dequeue();
+                if (p.X == g.X && p.Y == g.Y)
+                    return true;
+
+                for (int i = 0; i < dirs.Length; i++) {
+                    int nx = p.X + dirs[i].X;
+                    int ny = p.Y + dirs[i].Y;
+                    if (nx < minX || nx > maxX || ny < minY || ny > maxY)
+                        continue;
+
+                    int vx = nx - minX, vy = ny - minY;
+                    if (visited[vx, vy])
+                        continue;
+
+                    // passable tile check
+                    if (IsTileBlocked(nx, ny))
+                        continue;
+
+                    // prevent diagonal corner cutting
+                    if (i >= 4) {
+                        if (IsTileBlocked(p.X, ny) && IsTileBlocked(nx, p.Y))
+                            continue;
+                    }
+
+                    visited[vx, vy] = true;
+                    q.Enqueue(new Point(nx, ny));
+                }
+            }
+
+            return false;
+        }
+
+        private bool IsTileBlocked(int tx, int ty) {
+            if (tx < 0 || tx >= Main.maxTilesX || ty < 0 || ty >= Main.maxTilesY)
+                return true;
+            return Collision.SolidTiles(tx, ty, tx, ty);
         }
     }
 }
