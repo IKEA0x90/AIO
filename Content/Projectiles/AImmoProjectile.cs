@@ -44,11 +44,11 @@ namespace AIO.Content.Projectiles {
         private AIState currentState = AIState.Seeking;
 
         // Tunables for prediction & avoidance
-        private const float PredictionSmoothing = 0.12f; // Exponential smoothing factor
-        private const float AccelSmoothing = 0.15f;
-        private const float MaxVerticalPredictionPerSec = 600f; // prevent absurd vertical leaps
-        private const float SimStep = 0.05f; // simulation timestep (s) for target motion prediction
-        private const float WorldGravity = 0.35f; // typical NPC gravity approximation (used if target has gravity)
+        private const float PredictionSmoothing = 0.08f; // Exponential smoothing factor (lower = less reactive)
+        private const float AccelSmoothing = 0.10f;
+        private const float MaxVerticalPredictionPerSec = 600f; // applied as a velocity clamp in prediction
+        private const float WorldGravity = 0.35f; // typical NPC gravity approximation per tick
+        private const float SimStepTicks = 3f; // simulation timestep (ticks) for target motion prediction
 
         public override void SetStaticDefaults() {
             ProjectileID.Sets.CultistIsResistantTo[Projectile.type] = true;
@@ -161,8 +161,8 @@ namespace AIO.Content.Projectiles {
                         ConfidenceLevel = 0.3f;
 
                         // initialize smoothing
-                        smoothedTargetVelocity = HomingTarget.velocity;
-                        smoothedTargetAcceleration = Vector2.Zero;
+                        smoothedTargetVelocity = HomingTarget.velocity; // px/tick
+                        smoothedTargetAcceleration = Vector2.Zero;      // px/tick^2
                     }
                     Projectile.netUpdate = true;
                 }
@@ -215,20 +215,29 @@ namespace AIO.Content.Projectiles {
                 return;
 
             Vector2 currentTargetPos = HomingTarget.Center;
-            Vector2 currentTargetVel = HomingTarget.velocity;
+            Vector2 currentTargetVel = HomingTarget.velocity; // px/tick
 
-            // Exponential smoothing to remove noisy instantaneous spikes (esp. on NPC jump land events)
+            // Exponential smoothing to remove noisy instantaneous spikes (esp. on NPC jump/land events)
             if (targetTrackingFrames == 0) {
                 smoothedTargetVelocity = currentTargetVel;
                 smoothedTargetAcceleration = Vector2.Zero;
             } else {
-                Vector2 rawAccel = (currentTargetVel - smoothedTargetVelocity) / Math.Max(1f / 60f, 1f / 60f); // frame delta approximated
-                smoothedTargetAcceleration = Vector2.Lerp(smoothedTargetAcceleration, rawAccel, AccelSmoothing);
+                // Work in px/tick units; acceleration is delta-velocity per tick (px/tick^2)
+                Vector2 prevVel = smoothedTargetVelocity;
+                Vector2 deltaVel = currentTargetVel - prevVel;
+
+                smoothedTargetAcceleration = Vector2.Lerp(smoothedTargetAcceleration, deltaVel, AccelSmoothing);
                 smoothedTargetVelocity = Vector2.Lerp(smoothedTargetVelocity, currentTargetVel, PredictionSmoothing);
 
+                // Clamp sudden vertical changes to avoid mimicking bursty jumps/falls
+                float maxVelYDeltaPerTick = 0.8f; // px/tick per frame change allowed in smoothed Y
+                float velYDelta = smoothedTargetVelocity.Y - prevVel.Y;
+                velYDelta = MathHelper.Clamp(velYDelta, -maxVelYDeltaPerTick, maxVelYDeltaPerTick);
+                smoothedTargetVelocity.Y = prevVel.Y + velYDelta;
+
                 // Clamp vertical acceleration to reduce wild arcs from instant landing/launch
-                float maxVertAccel = 1200f; // px/s^2
-                smoothedTargetAcceleration.Y = MathHelper.Clamp(smoothedTargetAcceleration.Y, -maxVertAccel, maxVertAccel);
+                float maxVertAccelPerTick2 = 0.8f; // px/tick^2
+                smoothedTargetAcceleration.Y = MathHelper.Clamp(smoothedTargetAcceleration.Y, -maxVertAccelPerTick2, maxVertAccelPerTick2);
             }
 
             lastTargetPosition = currentTargetPos;
@@ -384,6 +393,7 @@ namespace AIO.Content.Projectiles {
 
         /// <summary>
         /// Calculate a robust intercept point using simulation and smoothed values.
+        /// Uses tick-based units to match Terraria's velocity semantics and blends lead to avoid over-reacting.
         /// </summary>
         private Vector2 CalculateInterceptPoint(float predictionStrength) {
             if (HomingTarget == null)
@@ -394,55 +404,52 @@ namespace AIO.Content.Projectiles {
                 return HomingTarget.Center;
 
             Vector2 shooter = Projectile.Center;
-            float projectileSpeed = Projectile.velocity.Length();
+            float projectileSpeed = Projectile.velocity.Length(); // px/tick
             if (projectileSpeed < 1f)
                 projectileSpeed = 8f;
 
-            // Initial time estimate
+            // Initial time estimate in ticks
             Vector2 relative = HomingTarget.Center - shooter;
-            float timeToIntercept = relative.Length() / projectileSpeed;
+            float predictedTicks = relative.Length() / projectileSpeed;
 
-            // Cap time / vertical movement to avoid wild predictions with jumping NPCs
-            timeToIntercept = Math.Min(timeToIntercept, 5f);
+            // Clamp to reasonable window
+            predictedTicks = MathHelper.Clamp(predictedTicks, 4f, 6f * 60f);
 
-            // Use simulation of the target's motion (small dt steps) using smoothed velocity & accel
+            // Use simulation of the target's motion (small dt steps) using smoothed velocity & accel (px/tick, px/tick^2)
             Vector2 simPos = HomingTarget.Center;
             Vector2 simVel = smoothedTargetVelocity;
             Vector2 simAccel = smoothedTargetAcceleration;
 
-            // If NPC isn't affected by gravity, we skip gravity application.
             bool applyGravity = !HomingTarget.noGravity;
-            float simDt = SimStep; // seconds per step
-            float timeAccum = 0f;
-            float predictedTime = timeToIntercept;
+            float maxVertSpeedPerTick = MaxVerticalPredictionPerSec / 60f; // px/tick
 
-            // Iteratively refine timeToIntercept by simulating forward and computing distance
+            // Iteratively refine time by simulating forward and computing distance
             for (int iter = 0; iter < 4; iter++) {
                 simPos = HomingTarget.Center;
                 simVel = smoothedTargetVelocity;
                 simAccel = smoothedTargetAcceleration;
-                timeAccum = 0f;
 
-                int steps = Math.Max(1, (int)Math.Ceiling(predictedTime / simDt));
-                float dt = predictedTime / (float)steps;
+                int steps = Math.Max(1, (int)Math.Ceiling(predictedTicks / SimStepTicks));
+                float dtTicks = predictedTicks / steps; // ticks per sub-step
 
                 for (int s = 0; s < steps; s++) {
-                    // integrate acceleration (smoothed)
-                    simVel += simAccel * dt;
+                    // integrate acceleration (smoothed) in px/tick^2
+                    simVel += simAccel * dtTicks;
 
-                    // gravity influence if applicable (approx)
+                    // gravity influence per tick
                     if (applyGravity) {
-                        simVel.Y += WorldGravity * dt * 60f; // scaled to px/s (approx)
+                        simVel.Y += WorldGravity * dtTicks;
                     }
 
-                    // step position
-                    simPos += simVel * dt;
+                    // clamp vertical speed
+                    simVel.Y = MathHelper.Clamp(simVel.Y, -maxVertSpeedPerTick, maxVertSpeedPerTick);
+
+                    // step position using px/tick velocity
+                    simPos += simVel * dtTicks;
 
                     // if simPos hits the ground (tile collision), snap to surface and zero vertical vel
-                    // approximate using a small rectangle the size of the NPC
                     Rectangle npcRect = new Rectangle((int)(simPos.X - HomingTarget.width / 2), (int)(simPos.Y - HomingTarget.height / 2), HomingTarget.width, HomingTarget.height);
                     if (Collision.SolidCollision(new Vector2(npcRect.X, npcRect.Y), npcRect.Width, npcRect.Height)) {
-                        // move upward until no overlap (simple push out)
                         int maxPush = 32;
                         for (int push = 0; push < maxPush; push++) {
                             npcRect.Y -= 1;
@@ -452,34 +459,32 @@ namespace AIO.Content.Projectiles {
                                 break;
                             }
                         }
-                        // If still colliding, break out conservatively
                         if (Collision.SolidCollision(new Vector2(npcRect.X, npcRect.Y), npcRect.Width, npcRect.Height)) {
                             break;
                         }
                     }
-
-                    timeAccum += dt;
                 }
 
-                // compute new time estimate
-                float newDistance = Vector2.Distance(shooter, simPos);
-                float newTime = newDistance / projectileSpeed;
+                // compute new time estimate (ticks)
+                float newTicks = Vector2.Distance(shooter, simPos) / projectileSpeed;
                 // damp changes and set for next iteration
-                predictedTime = MathHelper.Lerp(predictedTime, newTime, 0.6f);
-                predictedTime = Math.Max(0.02f, Math.Min(predictedTime, 6f));
+                predictedTicks = MathHelper.Lerp(predictedTicks, newTicks, 0.6f);
+                predictedTicks = MathHelper.Clamp(predictedTicks, 2f, 6f * 60f);
             }
 
-            // Final refined predicted position using final predictedTime (and include a predictionStrength multiplier)
+            // Final refined predicted position using final predictedTicks
             Vector2 finalPredPos = HomingTarget.Center;
             Vector2 finalVel = smoothedTargetVelocity;
             Vector2 finalAccel = smoothedTargetAcceleration;
-            float finalSteps = Math.Max(1, (int)Math.Ceiling(predictedTime / SimStep));
-            float finalDt = predictedTime / finalSteps;
+
+            int finalSteps = Math.Max(1, (int)Math.Ceiling(predictedTicks / SimStepTicks));
+            float finalDtTicks = predictedTicks / finalSteps;
             for (int s = 0; s < finalSteps; s++) {
-                finalVel += finalAccel * finalDt;
+                finalVel += finalAccel * finalDtTicks;
                 if (!HomingTarget.noGravity)
-                    finalVel.Y += WorldGravity * finalDt * 60f;
-                finalPredPos += finalVel * finalDt * predictionStrength / 1f;
+                    finalVel.Y += WorldGravity * finalDtTicks;
+                finalVel.Y = MathHelper.Clamp(finalVel.Y, -maxVertSpeedPerTick, maxVertSpeedPerTick);
+                finalPredPos += finalVel * finalDtTicks;
                 // handle landing like above
                 Rectangle npcRect = new Rectangle((int)(finalPredPos.X - HomingTarget.width / 2), (int)(finalPredPos.Y - HomingTarget.height / 2), HomingTarget.width, HomingTarget.height);
                 if (Collision.SolidCollision(new Vector2(npcRect.X, npcRect.Y), npcRect.Width, npcRect.Height)) {
@@ -498,17 +503,27 @@ namespace AIO.Content.Projectiles {
                 }
             }
 
-            // Wall avoidance: if we can't reach finalPredPos directly, try offset paths
-            if (!Collision.CanHitLine(Projectile.Center, 0, 0, finalPredPos, 0, 0)) {
-                Vector2 toTarget = finalPredPos - Projectile.Center;
+            // Blend the lead to avoid over-anticipation; map predictionStrength to a 0..1 lead factor
+            float lead = MathHelper.Clamp(predictionStrength / 4.5f, 0.35f, 0.85f);
+            Vector2 blendedPredPos = Vector2.Lerp(HomingTarget.Center, finalPredPos, lead);
+
+            // If target is falling (positive Y velocity) and affected by gravity, avoid aiming too far below its current Y to prevent ground-dives
+            if (!HomingTarget.noGravity && smoothedTargetVelocity.Y > 0.5f) {
+                float maxDownLead = 120f; // pixels below current target center
+                blendedPredPos.Y = Math.Min(blendedPredPos.Y, HomingTarget.Center.Y + maxDownLead);
+            }
+
+            // Wall avoidance: if we can't reach directly, try offset paths
+            if (!Collision.CanHitLine(Projectile.Center, 0, 0, blendedPredPos, 0, 0)) {
+                Vector2 toTarget = blendedPredPos - Projectile.Center;
                 if (toTarget == Vector2.Zero)
                     return Projectile.Center;
                 Vector2 dir = Vector2.Normalize(toTarget);
                 Vector2 perp = new Vector2(-dir.Y, dir.X);
 
-                Vector2 best = finalPredPos;
-                Vector2 leftPath = finalPredPos + perp * 80f;
-                Vector2 rightPath = finalPredPos - perp * 80f;
+                Vector2 best = blendedPredPos;
+                Vector2 leftPath = blendedPredPos + perp * 80f;
+                Vector2 rightPath = blendedPredPos - perp * 80f;
                 bool leftClear = Collision.CanHitLine(Projectile.Center, 0, 0, leftPath, 0, 0);
                 bool rightClear = Collision.CanHitLine(Projectile.Center, 0, 0, rightPath, 0, 0);
 
@@ -519,17 +534,17 @@ namespace AIO.Content.Projectiles {
                 else {
                     // sample more offsets (spiral) to handle narrow cave turns
                     for (float offset = 40f; offset <= 320f; offset += 40f) {
-                        Vector2 candA = finalPredPos + perp * offset;
-                        Vector2 candB = finalPredPos - perp * offset;
+                        Vector2 candA = blendedPredPos + perp * offset;
+                        Vector2 candB = blendedPredPos - perp * offset;
                         if (Collision.CanHitLine(Projectile.Center, 0, 0, candA, 0, 0)) { best = candA; break; }
                         if (Collision.CanHitLine(Projectile.Center, 0, 0, candB, 0, 0)) { best = candB; break; }
                     }
                 }
 
-                finalPredPos = best;
+                blendedPredPos = best;
             }
 
-            return finalPredPos;
+            return blendedPredPos;
         }
 
         /// <summary>
@@ -689,7 +704,8 @@ namespace AIO.Content.Projectiles {
         }
 
         private bool IsValidTarget(NPC target) {
-            return target.CanBeChasedBy()
+            return target != null
+                && target.CanBeChasedBy()
                 && !target.friendly
                 && target.life > 0
                 && target.active;
