@@ -7,7 +7,7 @@ using Terraria.ModLoader;
 namespace AIO.Content {
     // This class contains thoughtful examples of item recipe creation.
     // Recipes are explained in detail on the https://github.com/tModLoader/tModLoader/wiki/Basic-Recipes and https://github.com/tModLoader/tModLoader/wiki/Intermediate-Recipes wiki pages. Please visit the wiki to learn more about recipes if anything is unclear.
-    public class ExampleRecipes : ModSystem {
+    public class Recipes : ModSystem {
 
         public override void AddRecipes() {
 
