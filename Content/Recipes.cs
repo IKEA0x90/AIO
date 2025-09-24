@@ -16,17 +16,28 @@ namespace AIO.Content {
             recipe.AddIngredient(ItemID.BubbleWand, 1);
             recipe.AddTile(TileID.BubbleMachine);
             recipe.AddConsumeIngredientCallback(RecipeCallbacks.DontConsumeBaloon);
+            recipe.DisableDecraft();
             recipe.Register();
 
             var resultItem = ModContent.GetInstance<Items.Placeable.ForegroundGlassWall>();
             resultItem.CreateRecipe(25).
                 AddIngredient(ItemID.GlassWall, 25).
-                AddTile(TileID.GlassKiln).Register();
+                AddTile(TileID.GlassKiln).DisableDecraft().Register();
 
             Recipe recipe1 = Recipe.Create(ItemID.GlassWall, 25);
             recipe1.AddIngredient<Items.Placeable.ForegroundGlassWall>(25);
             recipe1.AddTile(TileID.GlassKiln);
+            recipe1.DisableDecraft();
             recipe1.Register();
+
+            var resultItem2 = ModContent.GetInstance<Items.Weapons.BladeOfTheRuinedKing>();
+            resultItem.CreateRecipe(1).
+                AddIngredient(ItemID.HallowedBar, 16).
+                AddIngredient(ItemID.SoulofNight, 8).
+                AddIngredient(ItemID.SoulofMight, 10).
+                AddIngredient(ItemID.Emerald, 6).
+                AddTile(TileID.DemonAltar).
+                Register();
         }
     }
 }

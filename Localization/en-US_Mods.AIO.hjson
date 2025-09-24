@@ -3,7 +3,7 @@
 Items: {
 	BladeOfTheRuinedKing: {
 		DisplayName: Blade Of The Ruined King
-		Tooltip: Blade of the Ruined King in Terraria
+		Tooltip: Blade of the Ruined King (in Terraria)
 	}
 
 	AIBar: {
@@ -33,17 +33,12 @@ Items: {
 
 	AImmo: {
 		DisplayName: AImmo
-		Tooltip: Cyberpunk is here
+		Tooltip: They are here to lag the game and kill all enemies
 	}
 
 	ForegroundGlassWall: {
 		DisplayName: Foreground Glass Wall
-		Tooltip: ""
-	}
-
-	ForegroundPaint: {
-		Tooltip: ""
-		DisplayName: Foreground Paint
+		Tooltip: Unlock a new dimension!
 	}
 }
 
