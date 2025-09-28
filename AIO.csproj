@@ -9,13 +9,13 @@
 	</PropertyGroup>
 	<ItemGroup>
 	  <AdditionalFiles Remove="Assets\**" />
-	  <AdditionalFiles Remove="Common\**" />
 	  <Compile Remove="Assets\**" />
-	  <Compile Remove="Common\**" />
 	  <EmbeddedResource Remove="Assets\**" />
-	  <EmbeddedResource Remove="Common\**" />
 	  <None Remove="Assets\**" />
-	  <None Remove="Common\**" />
+	</ItemGroup>
+	<ItemGroup>
+	  <Folder Include="Content\Systems\" />
+	  <Folder Include="Common\" />
 	</ItemGroup>
 
 	<!-- References -->

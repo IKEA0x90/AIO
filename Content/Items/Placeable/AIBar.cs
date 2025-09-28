@@ -23,8 +23,9 @@ namespace AIO.Content.Items.Placeable
 		// Please see Content/ExampleRecipes.cs for a detailed explanation of recipe creation.
 		public override void AddRecipes() {
 			CreateRecipe()
-				.AddIngredient<AIOre>(4)
-				.AddTile(TileID.Furnaces)
+				.AddIngredient<AIOre>(3).
+				AddIngredient(ItemID.IceBlock, 10)
+				.AddTile(TileID.AdamantiteForge)
 				.Register();
 		}
 	}

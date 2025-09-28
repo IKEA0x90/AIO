@@ -24,7 +24,9 @@ namespace AIO.Content.Items.Placeable
 		public override void AddRecipes() {
 			CreateRecipe()
 				.AddIngredient<MoltenOre>(6)
-				.AddTile(TileID.Furnaces)
+				.AddTile(TileID.AdamantiteForge).
+				AddIngredient(ItemID.Hellstone, 2).
+				AddIngredient(ItemID.LivingFireBlock, 1)
 				.Register();
 		}
 	}

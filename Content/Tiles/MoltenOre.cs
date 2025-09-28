@@ -40,9 +40,9 @@ namespace AIO.Content.Tiles {
         public override void ModifyLight(int i, int j, ref float r, ref float g, ref float b) {
             // Pylons in vanilla light up, which is just a simple functionality we add using ModTile's ModifyLight.
             // Let's just add a simple white light for our pylon:
-            r = 222;
-            g = 56;
-            b = 32;
+            r = (int) (222 / 5);
+            g = (int) (56 / 5);
+            b = (int) (32 / 5);
         }
     }
 

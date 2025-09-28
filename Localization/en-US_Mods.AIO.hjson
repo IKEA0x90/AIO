@@ -40,6 +40,11 @@ Items: {
 		DisplayName: Foreground Glass Wall
 		Tooltip: Unlock a new dimension!
 	}
+
+	Magmer: {
+		Tooltip: ""
+		DisplayName: Magmer
+	}
 }
 
 Tiles: {

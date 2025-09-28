@@ -31,12 +31,27 @@ namespace AIO.Content {
             recipe1.Register();
 
             var resultItem2 = ModContent.GetInstance<Items.Weapons.BladeOfTheRuinedKing>();
-            resultItem.CreateRecipe(1).
+            resultItem2.CreateRecipe(1).
                 AddIngredient(ItemID.HallowedBar, 16).
                 AddIngredient(ItemID.SoulofNight, 8).
                 AddIngredient(ItemID.SoulofMight, 10).
                 AddIngredient(ItemID.Emerald, 6).
                 AddTile(TileID.DemonAltar).
+                Register();
+
+            var resultItem3 = ModContent.GetInstance<Items.Ammo.AImmo>();
+            resultItem3.CreateRecipe(100).
+                AddIngredient<Items.Placeable.AIBar>(1).
+                AddIngredient(ItemID.SilverBullet, 100).
+                AddTile(TileID.MythrilAnvil).
+                Register();
+
+            var resultItem4 = ModContent.GetInstance<Items.Tools.Magmer>();
+            resultItem4.CreateRecipe(1).
+                AddIngredient<Items.Placeable.MoltenBar>(25).
+                AddIngredient(ItemID.HellstoneBar, 10).
+                AddIngredient(ItemID.SpectreHamaxe, 1).
+                AddTile(TileID.MythrilAnvil).
                 Register();
         }
     }

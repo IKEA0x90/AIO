@@ -1,5 +1,6 @@
 ﻿using Microsoft.Build.Evaluation;
 using Terraria;
+using Terraria.Enums;
 using Terraria.ID;
 using Terraria.ModLoader;
 
@@ -18,6 +19,7 @@ namespace AIO.Content.Items.Ammo {
             Item.shoot = ModContent.ProjectileType<Projectiles.AImmoProjectile>();
             Item.shootSpeed = 4f;
             Item.ammo = AmmoID.Bullet;
+            Item.SetShopValues(ItemRarityColor.Green2, Item.buyPrice(silver: 1));
         }
     }
 }
