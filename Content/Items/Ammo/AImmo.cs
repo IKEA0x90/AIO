@@ -7,7 +7,7 @@ using Terraria.ModLoader;
 namespace AIO.Content.Items.Ammo {
     public class AImmo : ModItem {
         public override void SetDefaults() {
-            Item.damage = 10;
+            Item.damage = 12;
             Item.DamageType = DamageClass.Ranged;
             Item.width = 8;
             Item.height = 8;

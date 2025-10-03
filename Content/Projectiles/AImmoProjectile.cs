@@ -75,7 +75,7 @@ namespace AIO.Content.Projectiles {
             Projectile.extraUpdates = 0;
 
             Projectile.scale = 1.2f;
-            Projectile.timeLeft = 10000;
+            Projectile.timeLeft = 6000;
 
             Projectile.DamageType = DamageClass.Ranged;
         }

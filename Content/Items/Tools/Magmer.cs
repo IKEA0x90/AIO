@@ -13,8 +13,8 @@ namespace AIO.Content.Items.Tools {
             Item.DamageType = DamageClass.Melee;
             Item.width = 62;
             Item.height = 56;
-            Item.useTime = 13;
-            Item.useAnimation = 1;
+            Item.useTime = 1;
+            Item.useAnimation = 20;
             Item.useStyle = ItemUseStyleID.Swing;
             Item.knockBack = 10;
             Item.value = Item.sellPrice(0, 4, 50, 0);
