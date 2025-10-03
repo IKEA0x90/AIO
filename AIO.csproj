@@ -15,7 +15,6 @@
 	</ItemGroup>
 	<ItemGroup>
 	  <Folder Include="Content\Systems\" />
-	  <Folder Include="Common\" />
 	</ItemGroup>
 
 	<!-- References -->

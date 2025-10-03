@@ -45,6 +45,16 @@ Items: {
 		Tooltip: ""
 		DisplayName: Magmer
 	}
+
+	PredictorAccessory: {
+		DisplayName: Predictor Accessory
+		Tooltip: ""
+	}
+
+	PredictorAccessoryMk2: {
+		DisplayName: Predictor Accessory Mk2
+		Tooltip: ""
+	}
 }
 
 Tiles: {
@@ -59,3 +69,10 @@ WorldGen: {
 }
 
 Projectiles.AImmoProjectile.DisplayName: AImmo
+
+Buffs: {
+	PredictorAccessoryBuff: {
+		DisplayName: Predictor Accessory Buff
+		Description: Mods.AIO.Buffs.PredictorAccessoryBuff.Description
+	}
+}
